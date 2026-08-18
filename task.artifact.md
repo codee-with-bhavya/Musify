@@ -1,9 +1,0 @@
-- `[/]` Update `backend/scrapers/innertube.py`
-    - `[ ]` Update `ANDROID_MUSIC` profile to a stable legacy version
-    - `[ ]` Refactor `player()` method for clean multi-stage resolution
-- `[ ]` Update `backend/main.py`
-    - `[ ]` Refactor `get_stream` to prioritize direct URLs and fallback to `yt-dlp`
-    - `[ ]` Configure `yt-dlp` with Node.js runtime and Android-Music identity
-- `[ ]` Verification
-    - `[ ]` Test official tracks (e.g. Shape of You)
-    - `[ ]` Test ciphered tracks (e.g. affection)
