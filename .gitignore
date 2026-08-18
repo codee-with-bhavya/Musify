@@ -1,0 +1,9 @@
+.artifacts/
+.idea/
+**/__pycache__/
+*.pyc
+backend/debug_playlist_response.json
+.env
+local.properties
+.gradle/
+**/build/
