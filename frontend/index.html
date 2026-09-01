@@ -69,10 +69,9 @@
         /* Consistent Card Style */
         .card { min-width: 180px; width: 180px; flex-shrink: 0; cursor: pointer; transition: transform 0.2s; position: relative; }
         .card:hover { transform: translateY(-4px); }
-        .card-img-container { position: relative; width: 180px; height: 180px; border-radius: var(--radius); overflow: hidden; background-color: var(--surface2); margin-bottom: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
-        .card-img { width: 100%; height: 100%; object-fit: cover; transition: opacity 0.3s; opacity: 0; }
-        .card-img.loaded { opacity: 1; }
+        .card-img-container { position: relative; width: 180px; height: 180px; border-radius: var(--radius); overflow: hidden; background-color: var(--surface); margin-bottom: 12px; }
         .card.artist .card-img-container { border-radius: 50%; }
+        .card-img { width: 100%; height: 100%; object-fit: cover; }
         .card-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .card-subtitle { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -183,11 +182,7 @@
         .nav-link:hover { background:rgba(255,255,255,.07); }.nav-link.active { background:linear-gradient(100deg,rgba(101,53,192,.58),rgba(76,36,137,.42)); color:#fff; }
         .sidebar > div[style*="margin-top"] { display:none; }.sidebar #nav-liked { display:none; }
         .library-heading { display:flex; align-items:center; justify-content:space-between; margin:26px 0 14px; padding:17px 0 0; border-top:1px solid var(--border); color:#f5f2f7; font-size:14px; font-weight:700; }
-        .library-actions { display:flex; align-items:center; gap:4px; margin-left: auto; }
-        .lib-action-btn { background:transparent; border:none; color:#bbb5c6; font-size:18px; cursor:pointer; width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; transition: all 0.2s ease; line-height:1; outline: none; user-select: none; vertical-align: middle; }
-        .lib-action-btn svg { transition: transform 0.2s ease; }
-        .lib-action-btn:hover { background:rgba(255,255,255,0.1); color:#fff; }
-        .lib-action-btn:active { transform: scale(0.9); }
+        .library-actions { color:#bbb5c6; font-size:22px; font-weight:400; letter-spacing:10px; }
         .library-filters { display:flex; gap:8px; margin-bottom:17px; }.library-filter { border:0; border-radius:999px; padding:8px 11px; background:#202024; color:#ece9ee; font:600 12px Inter; }
         .saved-item { display:flex; align-items:center; gap:10px; min-width:0; padding:5px 1px; cursor:pointer; }.saved-item:hover .saved-title{color:#fff}.saved-cover { width:40px;height:40px;border-radius:5px;object-fit:cover;background:#29292e;flex:0 0 auto; }.saved-cover.liked-cover{display:grid;place-items:center;background:linear-gradient(135deg,#7c21df,#4a12bd);font-size:20px}.saved-copy{min-width:0}.saved-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved-sub{font-size:11px;color:#aaa5b0;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .top-bar { left:var(--sidebar-w); right:var(--panel-w); height:66px; padding:0 34px; background:rgba(10,11,12,.7); border-bottom:1px solid rgba(255,255,255,.045); }
@@ -215,7 +210,7 @@
         <div class="nav-link" id="nav-liked" onclick="navigate('library', 'Liked Songs')">♥ Liked Songs</div>
         <div class="nav-link" id="nav-downloads" onclick="navigate('library', 'Downloads')">↓ Downloads</div>
         <div class="nav-link" id="nav-playlists" onclick="navigate('library', 'Playlists')">≡ Playlists</div>
-        <div class="library-heading"><span>Your Library</span><div class="library-actions"><button class="lib-action-btn" onclick="navigate('library','Playlists')" title="Create playlist">+</button><button class="lib-action-btn" onclick="scrollSidebar()" title="Collapse library"><svg id="lib-collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></button></div></div>
+        <div class="library-heading"><span>Your Library</span><span class="library-actions">+⌃</span></div>
         <div class="library-filters"><button class="library-filter">Playlists</button><button class="library-filter">Artists</button><button class="library-filter">Albums</button></div>
         <div class="saved-item" onclick="navigate('library', 'Liked Songs')"><div class="saved-cover liked-cover">♥</div><div class="saved-copy"><div class="saved-title">Liked Songs</div><div class="saved-sub" id="sidebar-liked-count">Playlist · 0 songs</div></div></div>
     </div>
@@ -255,7 +250,7 @@
 
     <div class="player-bar" id="player-bar" style="display:none">
         <div class="player-left">
-            <img id="player-thumb" class="player-thumb" src="" onerror="this.src=PLACEHOLDER; this.classList.add('loaded')" onload="this.classList.add('loaded')">
+            <img id="player-thumb" class="player-thumb" src="">
             <div class="player-info-text">
                 <div id="player-title" class="player-title"></div>
                 <div id="player-artist" class="player-artist"></div>
@@ -312,25 +307,25 @@
 
     <script>
         // Set dynamic API Base to work on local network
-        const PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Crect width='512' height='512' fill='%231e1e2c'/%3E%3Ctext x='50%25' y='50%25' font-size='80' text-anchor='middle' dominant-baseline='middle' fill='%235a5a78'%3E%E2%99%AB%3C/text%3E%3C/svg%3E";
         const API_BASE = window.location.hostname ? `http://${window.location.hostname}:8000` : 'http://localhost:8000';
         const audio = document.getElementById('audioEl');
         const playerBar = document.getElementById('player-bar');
         const searchInput = document.getElementById('search-input');
-
         let queue = [], queueIndex = -1, shuffle = false, repeat = false, currentFilter = '';
-        let activeSourceTracks = [], globalIndex = -1; // Pass 8 sliding window
         let debounceTimer;
         let lastSearchResults = [];
+        // Bug #4 fix: scoped per-view section data to prevent stale card clicks
+        // when rapid navigation overwrites a shared global mid-flight.
         let homeSectionData = [];
         let exploreSectionData = [];
         let detailSectionData = [];
+        // Bug #5 fix: scoped per-detail track list; replaces window.currentViewTracks global.
         let currentViewTracks = [];
         let currentDetailBrowseId = null;
         let currentContinuation = null;
         let detailVersion = 0;
-        let likedTracks = [];
-        let sessionRecentlyPlayed = [];
+        let likedTracks = []; // Bug #5 fix: scoped, replaces window.likedTracks
+        let sessionRecentlyPlayed = []; // Session-based tracking
         let panelContext = { kind: 'home', title: 'Musify', subtitle: 'Choose something to play', thumbnail: '', tracks: [] };
         let queueExpanded = false;
         let navigationVersion = 0;
@@ -378,7 +373,7 @@
                     <div class="panel-title-row"><button class="queue-header-btn" onclick="toggleQueuePanel()">Next in queue</button><button class="queue-header-btn queue-open" onclick="toggleQueuePanel()">${queueExpanded ? 'Close' : 'Open queue'}</button></div>
                     <div class="queue-list">${shown.length ? shown.map(track => {
                         const i = queue.indexOf(track);
-                        return `<div class="queue-row ${i === queueIndex ? 'current' : ''}" onclick="playQueueItem(${i})"><img class="queue-thumb" src="${srcUrl(track.thumbnail)}" alt="" onerror="this.src=PLACEHOLDER"><div class="queue-copy"><div class="queue-song">${esc(track.title)}</div><div class="queue-artist">${esc(track.subtitle)}</div></div></div>`;
+                        return `<div class="queue-row ${i === queueIndex ? 'current' : ''}" onclick="playQueueItem(${i})"><img class="queue-thumb" src="${srcUrl(track.thumbnail)}" alt=""><div class="queue-copy"><div class="queue-song">${esc(track.title)}</div><div class="queue-artist">${esc(track.subtitle)}</div></div></div>`;
                     }).join('') : '<div class="queue-empty">Your next songs will appear here.</div>'}</div>
                     ${!queueExpanded && nextTracks.length > shown.length ? `<div class="queue-more">+ ${nextTracks.length - shown.length} more</div>` : ''}
                 </section>`;
@@ -491,27 +486,16 @@
         // that contain query-string parameters (e.g. ?sqp=...&rs=...).
         // srcUrl() only strips characters that break out of an HTML attribute.
         function srcUrl(s) {
-            if (!s || s === 'null' || s === 'undefined' || s === 'none') {
-                return PLACEHOLDER;
-            }
-            let url = String(s).trim();
-            if (url.startsWith('//')) {
-                url = 'https:' + url;
-            }
-            return url.replace(/"/g, '%22').replace(/</g, '%3C').replace(/>/g, '%3E');
+            if (!s) return '';
+            return String(s).replace(/"/g, '%22').replace(/</g, '%3C').replace(/>/g, '%3E');
         }
 
-        let _appInitDone = false;
-        function appInit() {
-            if (_appInitDone) return;
-            _appInitDone = true;
+        window.onload = () => {
             initRouter();
-            setVolume(100);
+            setVolume(100); // init slider fill colour
             refreshSidebarLibrary();
             renderContextPanel();
-        }
-        document.addEventListener('DOMContentLoaded', appInit);
-        window.onload = appInit;
+        };
 
         // --- Routing System ---
         function initRouter() {
@@ -551,18 +535,9 @@
         }
 
         function showView(id) {
-            // Free memory from views we're leaving (Pass 5)
-            if (id !== 'detail-view') {
-                currentViewTracks = [];
-                detailSectionData = [];
-                currentDetailBrowseId = null;
-                currentContinuation = null;
-            }
-            if (id !== 'home-view')    homeSectionData = [];
-            if (id !== 'explore-view') exploreSectionData = [];
-
             ['home-view', 'explore-view', 'search-view', 'library-view', 'detail-view'].forEach(v => {
-                document.getElementById(v).style.display = v === id ? '' : 'none';
+                const el = document.getElementById(v);
+                if(el) el.style.display = (v === id) ? 'block' : 'none';
             });
 
             // Update nav active states
@@ -579,99 +554,43 @@
             console.log("Loading home...");
             showView('home-view');
             const container = document.getElementById('home-view');
-            container.innerHTML = renderHomeHero();
-
-            homeSectionData = [];
-
-            if (sessionRecentlyPlayed.length > 0) {
-                appendShelf({ title: "Continue Listening", items: sessionRecentlyPlayed }, 'home', container);
-            }
-
+            container.innerHTML = renderSkeletons(4);
             try {
                 const url = `${API_BASE}/api/home`;
                 console.log(`Fetching from: ${url}`);
-
-                const ctrl = abortAndNew('home');
-                const response = await fetch(url, { signal: ctrl.signal });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                const data = await response.json();
+                const res = await afetch(url, 'home');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
                 if (version !== navigationVersion) return;
+                console.log("Home data received:", data);
 
-                const sections = data.sections || [];
-                for (const section of sections) {
-                    if (version !== navigationVersion) return;
-                    appendShelf(section, 'home', container);
+                homeSectionData = data.sections || [];
+
+                // Prepend session-based "Continue Listening"
+                if (sessionRecentlyPlayed.length > 0) {
+                    const continueSection = {
+                        title: "Continue Listening",
+                        items: sessionRecentlyPlayed
+                    };
+                    homeSectionData = [continueSection, ...homeSectionData];
+                }
+
+                if (homeSectionData.length === 0) {
+                    container.innerHTML = '<div class="placeholder-view"><h2>Nothing to show</h2><p>The home feed returned no sections.</p></div>';
+                } else {
+                    container.innerHTML = renderHomeHero() + renderShelves(homeSectionData, 'home');
                 }
             } catch(e) {
                 if (e.name === 'AbortError') return;
                 console.error("Home load error:", e);
                 showToast("Failed to load home: " + e.message, true);
-                container.insertAdjacentHTML('beforeend', `<div class="placeholder-view"><h2>Error loading</h2><p>${e.message}</p></div>`);
+                container.innerHTML = `<div class="placeholder-view"><h2>Error loading home</h2><p>${e.message}</p><button class="play-all-btn" style="margin-top:16px" onclick="loadHome()">Retry</button></div>`;
             }
-        }
-
-        function appendShelf(section, viewKey, container) {
-            if (!section || !section.items || !section.items.length) return;
-
-            // Check if shelf already exists (to merge items)
-            const existingShelf = container.querySelector(`[data-shelf-title="${esc(section.title)}"]`);
-            if (existingShelf) {
-                const existingRow = existingShelf.querySelector('.shelf-row');
-                if (existingRow) {
-                    const shelfIdx = Array.from(container.querySelectorAll('.shelf')).indexOf(existingShelf);
-                    const currentItemsCount = getSectionData(viewKey)[shelfIdx]?.items.length || 0;
-
-                    const newItemsHtml = section.items.map((item, iIdx) => `
-                        <div class="card ${item.type === 'artist' ? 'artist' : ''}" onclick="handleCardClick('${viewKey}', ${shelfIdx}, ${currentItemsCount + iIdx})">
-                            <div class="card-img-container"><img src="${srcUrl(item.thumbnail)}" class="card-img" onload="this.classList.add('loaded')" onerror="if(this.src.includes('maxresdefault')){this.src=this.src.replace('maxresdefault','hqdefault')}else{this.src=PLACEHOLDER;this.classList.add('loaded')}" loading="lazy"></div>
-                            <div class="card-title">${esc(item.title) || 'Unknown'}</div>
-                            <div class="card-subtitle">${esc(item.subtitle) || ''}</div>
-                        </div>`).join('');
-
-                    existingRow.insertAdjacentHTML('beforeend', newItemsHtml);
-
-                    // Update internal data structures for handleCardClick
-                    const data = getSectionData(viewKey);
-                    if (data[shelfIdx]) {
-                        data[shelfIdx].items = data[shelfIdx].items.concat(section.items);
-                    }
-                    return;
-                }
-            }
-
-            // Create new shelf
-            const data = getSectionData(viewKey);
-            const sIdx = data.length;
-            const rowId = `shelf-row-${viewKey}-${sIdx}`;
-            const shelfHtml = `
-            <div class="shelf" data-shelf-title="${esc(section.title)}">
-                <div class="shelf-header">
-                    <h2 class="shelf-title">${esc(section.title)}</h2>
-                    <button class="play-all-btn" onclick="playFromShelf('${viewKey}', ${sIdx}, 0)">Play all</button>
-                </div>
-                <div class="shelf-container">
-                    <button class="scroll-btn left" onclick="scrollShelf('${rowId}', -1)">❮</button>
-                    <div class="shelf-row" id="${rowId}">
-                        ${section.items.map((item, i) => `
-                        <div class="card ${item.type === 'artist' ? 'artist' : ''}" onclick="handleCardClick('${viewKey}', ${sIdx}, ${i})">
-                            <div class="card-img-container"><img src="${srcUrl(item.thumbnail)}" class="card-img" onload="this.classList.add('loaded')" onerror="if(this.src.includes('maxresdefault')){this.src=this.src.replace('maxresdefault','hqdefault')}else{this.src=PLACEHOLDER;this.classList.add('loaded')}" loading="lazy"></div>
-                            <div class="card-title">${esc(item.title) || 'Unknown'}</div>
-                            <div class="card-subtitle">${esc(item.subtitle) || ''}</div>
-                        </div>`).join('')}
-                    </div>
-                    <button class="scroll-btn right" onclick="scrollShelf('${rowId}', 1)">❯</button>
-                </div>
-            </div>`;
-            container.insertAdjacentHTML('beforeend', shelfHtml);
-
-            // Add to internal data for clicks
-            data.push(section);
         }
 
         function renderHomeHero() {
             const liked = getLiked();
-            const quickArt = liked[0]?.thumbnail ? `<img class="quick-tile-art" src="${srcUrl(liked[0].thumbnail)}" alt="" onerror="this.src=PLACEHOLDER">` : `<div class="quick-tile-art" style="display:grid;place-items:center;background:linear-gradient(135deg,#7d25d8,#4d11b8)">♥</div>`;
+            const quickArt = liked[0]?.thumbnail ? `<img class="quick-tile-art" src="${srcUrl(liked[0].thumbnail)}" alt="">` : `<div class="quick-tile-art" style="display:grid;place-items:center;background:linear-gradient(135deg,#7d25d8,#4d11b8)">♥</div>`;
             return `<section class="home-hero">
                 <div class="quick-filters"><button class="quick-filter active">All</button><button class="quick-filter">Music</button><button class="quick-filter">Podcasts</button></div>
                 <div><div class="quick-tile" onclick="navigate('library','Liked Songs')"><div class="quick-tile-art" style="display:grid;place-items:center;background:linear-gradient(135deg,#7d25d8,#4d11b8)">♥</div><span>Liked Songs</span></div><div class="quick-tile" style="margin-top:10px" onclick="focusSearch()">${quickArt}<span>Search your favourites</span></div></div>
@@ -714,7 +633,7 @@
                                     if (!item) return '';
                                     return `
                                     <div class="card ${item.type === 'artist' ? 'artist' : ''}" onclick="handleCardClick('${viewKey}', ${sIdx}, ${i})">
-                        <div class="card-img-container"><img src="${srcUrl(item.thumbnail)}" class="card-img" onload="this.classList.add('loaded')" onerror="if(this.src.includes('maxresdefault')){this.src=this.src.replace('maxresdefault','hqdefault')}else{this.src=PLACEHOLDER;this.classList.add('loaded')}" loading="lazy"></div>
+                                        <div class="card-img-container"><img src="${srcUrl(item.thumbnail)}" class="card-img" onerror="this.src='https://via.placeholder.com/180'" loading="lazy"></div>
                                         <div class="card-title">${esc(item.title) || 'Unknown'}</div>
                                         <div class="card-subtitle">${esc(item.subtitle) || ''}</div>
                                     </div>`;
@@ -774,7 +693,7 @@
                         ${liked.map((t, idx) => `
                         <div class="list-item" onclick="playFromLiked(${idx})">
                             <div style="width:32px;color:var(--text-muted);font-size:14px">${idx+1}</div>
-                            <img src="${srcUrl(t.thumbnail || (t.videoId ? 'https://i.ytimg.com/vi/'+t.videoId+'/mqdefault.jpg' : ''))}" style="width:40px;height:40px;border-radius:4px;margin-right:16px;object-fit:cover" onerror="if(this.src.includes('mqdefault')){this.src=this.src.replace('mqdefault','hqdefault')}else{this.src=PLACEHOLDER}">
+                            <img src="${srcUrl(t.thumbnail)}" style="width:40px;height:40px;border-radius:4px;margin-right:16px;object-fit:cover" onerror="this.src='https://via.placeholder.com/40'">
                             <div class="list-info">
                                 <div class="list-title">${esc(t.title)}</div>
                                 <div class="list-subtitle">${esc(t.subtitle) || ''}</div>
@@ -789,14 +708,17 @@
         }
 
         function playFromLiked(idx) {
+            // Always read fresh from localStorage so the queue reflects the current
+            // liked list even if the user liked/unliked tracks since the view rendered.
+            // likedTracks (the module-level var) is only set when loadLibrary() runs,
+            // so it can be stale or empty if the view was never opened this session.
             const fresh = getLiked();
             if (!fresh.length) return;
-
-            activeSourceTracks = fresh;
-            const gIdx = Math.min(idx, fresh.length - 1);
-
+            // The Liked Songs view is rendered from getLiked() at render time, so the
+            // displayed row at position idx corresponds to fresh[idx] — no remapping needed.
+            queue = fresh;
+            queueIndex = Math.min(idx, fresh.length - 1);
             playbackFailures.clear();
-            updateSlidingWindow(gIdx);
             playCurrent();
         }
 
@@ -871,7 +793,7 @@
                 lastSearchResults = data.results || [];
                 container.innerHTML = lastSearchResults.length ? lastSearchResults.map((item, idx) => `
                     <div class="list-item ${item.type === 'artist' ? 'artist' : ''}" onclick="handleSearchClick(${idx})">
-                        <img src="${srcUrl(item.thumbnail)}" class="list-img" onerror="if(this.src.includes('maxresdefault')){this.src=this.src.replace('maxresdefault','hqdefault')}else{this.src=PLACEHOLDER}">
+                        <img src="${srcUrl(item.thumbnail)}" class="list-img">
                         <div class="list-info"><div class="list-title">${esc(item.title)}</div><div class="list-subtitle">${esc(item.subtitle)}</div></div>
                         <div class="type-badge">${esc(item.type)}</div>
                     </div>`).join('') : '<div class="placeholder-view"><h2>No results found</h2></div>';
@@ -901,7 +823,7 @@
                 const data = await res.json();
                 if (version !== navigationVersion) return;
                 detailSectionData = data.sections || [];
-                container.innerHTML = `<div class="detail-header artist-header"><img src="${srcUrl(data.thumbnail)}" class="detail-img" onerror="if(this.dataset.fallback){this.src=PLACEHOLDER}else{this.dataset.fallback='1';const b=this.src.split('=')[0];this.src=(b&&b!==this.src)?b:PLACEHOLDER}"><div><h1 style="font-size:48px">${esc(data.title)}</h1><p style="color:var(--text-muted)">Artist</p></div></div>${renderShelves(detailSectionData, 'detail')}`;
+                container.innerHTML = `<div class="detail-header artist-header"><img src="${srcUrl(data.thumbnail)}" class="detail-img"><div><h1 style="font-size:48px">${esc(data.title)}</h1><p style="color:var(--text-muted)">Artist</p></div></div>${renderShelves(detailSectionData, 'detail')}`;
             } catch(e) { if (e.name !== 'AbortError') showToast("Failed to load artist: " + e.message, true); }
         }
 
@@ -969,7 +891,7 @@
                     list.insertAdjacentHTML('beforeend', newTracks.map((t, i) => `
                         <div class="list-item" onclick="playFromCurrentView(${startIdx + i})">
                             <div style="width:32px;color:var(--text-muted);font-size:14px">${startIdx + i + 1}</div>
-                            <img src="${srcUrl(t.thumbnail || (t.videoId ? 'https://i.ytimg.com/vi/'+t.videoId+'/mqdefault.jpg' : ''))}" style="width:40px;height:40px;border-radius:4px;margin-right:16px;object-fit:cover" onerror="if(this.src.includes('mqdefault')){this.src=this.src.replace('mqdefault','hqdefault')}else{this.src=PLACEHOLDER}">
+                            <img src="${srcUrl(t.thumbnail)}" style="width:40px;height:40px;border-radius:4px;margin-right:16px;object-fit:cover" onerror="this.src='https://via.placeholder.com/40'">
                             <div class="list-info">
                                 <div class="list-title">${esc(t.title)}</div>
                                 <div class="list-subtitle">${esc(t.subtitle) || ''}</div>
@@ -1011,7 +933,7 @@
 
             container.innerHTML = `
                 <div class="detail-header">
-                    <img src="${srcUrl(data.thumbnail)}" class="detail-img" onerror="if(this.dataset.fallback){this.src=PLACEHOLDER}else{this.dataset.fallback='1';const b=this.src.split('=')[0];this.src=(b&&b!==this.src)?b:PLACEHOLDER}">
+                    <img src="${srcUrl(data.thumbnail)}" class="detail-img" onerror="this.src='https://via.placeholder.com/232'">
                     <div>
                         <div style="font-size:12px; font-weight:700; text-transform:uppercase; margin-bottom:8px; color:var(--accent2)">${esc(typeLabel)}</div>
                         <h1 style="font-size:48px; margin-bottom:12px; line-height:1.1">${esc(data.title)}</h1>
@@ -1025,7 +947,7 @@
                     ${(data.tracks || []).map((t, idx) => `
                         <div class="list-item" onclick="playFromCurrentView(${idx})">
                             <div style="width:32px;color:var(--text-muted);font-size:14px">${idx+1}</div>
-                            <img src="${srcUrl(t.thumbnail || (t.videoId ? 'https://i.ytimg.com/vi/'+t.videoId+'/mqdefault.jpg' : ''))}" style="width:40px; height:40px; border-radius:4px; margin-right:16px; object-fit:cover" onerror="if(this.src.includes('mqdefault')){this.src=this.src.replace('mqdefault','hqdefault')}else{this.src=PLACEHOLDER}">
+                            <img src="${srcUrl(t.thumbnail)}" style="width:40px; height:40px; border-radius:4px; margin-right:16px; object-fit:cover" onerror="this.src='https://via.placeholder.com/40'">
                             <div class="list-info">
                                 <div class="list-title">${esc(t.title)}</div>
                                 <div class="list-subtitle">${esc(t.subtitle)}</div>
@@ -1072,55 +994,42 @@
         function playFromShelf(viewKey, sIdx, iIdx) {
             const data = getSectionData(viewKey);
             const list = data[sIdx].items;
+            // Bug #3 fix: if the clicked card has no videoId (artist/album/playlist card),
+            // fall back to the first song item in the shelf rather than setting queueIndex=-1
+            // and silently failing. If there are no songs at all in the shelf, do nothing.
             const clickedItem = list[iIdx];
             const startItem = clickedItem.videoId ? clickedItem : list.find(i => i.videoId);
             if (!startItem) return;
-
-            activeSourceTracks = list.filter(i => i.videoId);
-            const gIdx = activeSourceTracks.findIndex(i => i.videoId === startItem.videoId);
-            if (gIdx === -1) return;
-
+            queue = list.filter(i => i.videoId);
+            queueIndex = queue.findIndex(i => i.videoId === startItem.videoId);
+            if (queueIndex === -1) return; // no playable items
             playbackFailures.clear();
-            updateSlidingWindow(gIdx);
             playCurrent();
         }
 
-        const MAX_QUEUE = 200;
-        function updateSlidingWindow(gIdx) {
-            globalIndex = gIdx;
-            // Center the window around globalIndex, but keep a 50-track buffer behind
-            const start = Math.max(0, globalIndex - 50);
-            queue = activeSourceTracks.slice(start, start + MAX_QUEUE);
-            queueIndex = globalIndex - start;
-        }
-
         function playFromCurrentView(idx) {
+            // Filter out any tracks that lack a videoId (malformed API data)
+            // so playCurrent() never tries to stream `/api/stream/undefined`.
+            // Remap idx to account for any items dropped by the filter.
             const allTracks = currentViewTracks || [];
             const clickedTrack = allTracks[idx];
-
-            activeSourceTracks = allTracks.filter(t => t.videoId);
-            let gIdx;
+            queue = allTracks.filter(t => t.videoId);
             if (!clickedTrack || !clickedTrack.videoId) {
-                gIdx = 0;
+                // Clicked item itself has no videoId — play the first playable track.
+                queueIndex = 0;
             } else {
-                gIdx = activeSourceTracks.findIndex(t => t.videoId === clickedTrack.videoId);
+                queueIndex = queue.findIndex(t => t.videoId === clickedTrack.videoId);
             }
-
-            if (activeSourceTracks.length === 0 || gIdx === -1) return;
-
+            if (queue.length === 0 || queueIndex === -1) return;
             playbackFailures.clear();
-            updateSlidingWindow(gIdx);
             playCurrent();
         }
 
         function playFromList(list, idx) {
-            activeSourceTracks = list.filter(i => i.videoId);
-            const clickedTrack = list[idx];
-            const gIdx = activeSourceTracks.findIndex(i => i.videoId === clickedTrack.videoId);
-            if (gIdx === -1) return;
-
+            queue = list.filter(i => i.videoId);
+            queueIndex = queue.findIndex(i => i.videoId === list[idx].videoId);
+            if (queueIndex === -1) return;
             playbackFailures.clear();
-            updateSlidingWindow(gIdx);
             playCurrent();
         }
 
@@ -1135,7 +1044,7 @@
             }
 
             playerBar.style.display = 'flex';
-            document.getElementById('player-thumb').src = srcUrl(track.thumbnail);
+            document.getElementById('player-thumb').src = track.thumbnail;
             document.getElementById('player-title').innerText = track.title;
             document.getElementById('player-artist').innerText = track.subtitle;
             setPlayIcon('play'); // loading state — show play until stream starts
@@ -1179,35 +1088,22 @@
             }
         }
         function prev() {
-            if (!activeSourceTracks.length || globalIndex < 0) return;
-
+            // If the current stream has an active error, skip the currentTime check:
+            // resetting currentTime on a broken src re-fires onerror, showing a
+            // spurious error toast instead of cleanly moving to the previous track.
+            if (!queue.length || queueIndex < 0) return;
             const hasError = !!audio.error;
             if (!hasError && audio.currentTime > 3) {
                 audio.currentTime = 0;
-                return;
+            } else {
+                queueIndex = (queueIndex - 1 + queue.length) % queue.length;
+                playCurrent();
             }
-
-            let nextIdx = (globalIndex - 1 + activeSourceTracks.length) % activeSourceTracks.length;
-            updateSlidingWindow(nextIdx);
-            playCurrent();
         }
         function next() {
-            if (!activeSourceTracks.length || globalIndex < 0) return;
-
-            let nextIdx;
-            if(shuffle && activeSourceTracks.length > 1) {
-                nextIdx = globalIndex;
-                while(nextIdx === globalIndex) nextIdx = Math.floor(Math.random()*activeSourceTracks.length);
-            } else {
-                nextIdx = globalIndex + 1;
-            }
-
-            if (nextIdx >= activeSourceTracks.length) {
-                if (repeat) nextIdx = 0;
-                else return; // Stop at end
-            }
-
-            updateSlidingWindow(nextIdx);
+            if (!queue.length || queueIndex < 0) return;
+            if(shuffle && queue.length > 1) { let i = queueIndex; while(i === queueIndex) i = Math.floor(Math.random()*queue.length); queueIndex = i; }
+            else queueIndex = (queueIndex + 1) % queue.length;
             playCurrent();
         }
         function toggleShuffle() { shuffle = !shuffle; document.getElementById('shuffle-btn').classList.toggle('active', shuffle); }
@@ -1251,29 +1147,8 @@
 
         function loadHomeBtn() { navigate('home'); }
         function loadExploreBtn() { navigate('explore'); }
-        function scrollSidebar() {
-            const sidebar = document.querySelector('.sidebar');
-            const filters = document.querySelector('.library-filters');
-            const savedItem = document.querySelector('.saved-item');
-            const icon = document.getElementById('lib-collapse-icon');
 
-            if (!sidebar || !filters || !savedItem) return;
-
-            const isCollapsed = sidebar.dataset.collapsed === 'true';
-            if (isCollapsed) {
-                filters.style.display = 'flex';
-                savedItem.style.display = 'flex';
-                sidebar.dataset.collapsed = 'false';
-                if (icon) icon.style.transform = 'rotate(0deg)';
-            } else {
-                filters.style.display = 'none';
-                savedItem.style.display = 'none';
-                sidebar.dataset.collapsed = 'true';
-                if (icon) icon.style.transform = 'rotate(180deg)';
-            }
-        }
-
-        const DEBUG = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+        const DEBUG = true;
         function setPlayIcon(state) {
             // state: 'play' | 'pause' | 'loading'
             const pi = document.getElementById('play-icon');
@@ -1292,14 +1167,6 @@
         audio.onplay = () => {
             logDebug("Playback started");
             setPlayIcon('pause');
-            // Prefetch the next song's stream URL in the background
-            const nextIdx = shuffle
-                ? Math.floor(Math.random() * activeSourceTracks.length)
-                : globalIndex + 1;
-            if (nextIdx < activeSourceTracks.length && activeSourceTracks[nextIdx]?.videoId) {
-                const nextId = activeSourceTracks[nextIdx].videoId;
-                fetch(`${API_BASE}/api/prefetch/${nextId}`).catch(() => {});
-            }
         };
         audio.onpause = () => {
             logDebug("Playback paused");

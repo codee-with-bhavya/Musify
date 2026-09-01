@@ -6,12 +6,8 @@ from scrapers.parsers import parse_home_feed, parse_search_results, parse_artist
 from typing import Optional, Dict, Any
 import uvicorn
 import asyncio
-import time
-import json
 import yt_dlp
-from concurrent.futures import ThreadPoolExecutor
-
-_executor = ThreadPoolExecutor(max_workers=4)
+import time
 
 app = FastAPI()
 
@@ -38,23 +34,6 @@ app.add_middleware(
 
 innertube = InnerTube()
 
-# --- Stream URL cache (5 minute TTL) ---
-# Avoids re-running yt-dlp for the same song played repeatedly.
-_stream_cache: dict = {}
-STREAM_CACHE_TTL = 300  # seconds
-
-def stream_cache_get(video_id: str):
-    entry = _stream_cache.get(video_id)
-    if not entry:
-        return None
-    if (time.time() - entry["ts"]) >= STREAM_CACHE_TTL:
-        del _stream_cache[video_id]
-        return None
-    return entry["url"], entry["ext"]
-
-def stream_cache_set(video_id: str, url: str, ext: str):
-    _stream_cache[video_id] = {"url": url, "ext": ext, "ts": time.time()}
-
 # --- Simple in-memory TTL cache ---
 # Stores {key: {"data": ..., "ts": unix_timestamp}}
 # Used for /api/home (9 upstream calls) and /api/explore.
@@ -63,96 +42,103 @@ CACHE_TTL = 600  # seconds (10 minutes)
 
 def cache_get(key: str):
     entry = _cache.get(key)
-    if not entry:
-        return None
-    if (time.time() - entry["ts"]) >= CACHE_TTL:
-        del _cache[key]   # evict stale entry
-        return None
-    return entry["data"]
+    if entry and (time.time() - entry["ts"]) < CACHE_TTL:
+        return entry["data"]
+    return None
 
 def cache_set(key: str, data):
     _cache[key] = {"data": data, "ts": time.time()}
 
 @app.get("/api/home")
 async def get_home(refresh: bool = False):
-    """Aggregated home feed. Returns JSON array.
-    On cache hit, returns instantly. On miss, fetches and caches."""
-
+    """Aggregated home feed. Cached for 10 minutes. Pass ?refresh=true to bypass."""
     if not refresh:
         cached = cache_get("home")
         if cached is not None:
             print("Serving /api/home from cache")
-            return {"sections": cached}
+            return cached
+    try:
+        # Fetch from multiple sources to increase content density
+        browse_ids = ["FEmusic_home", "FEmusic_explore", "FEmusic_new_releases", "FEmusic_charts"]
+        browse_tasks = [innertube.browse(bid) for bid in browse_ids]
 
-    seen_item_keys = set()
-    accumulated_sections = []
-    recommended_items = []
+        # --- Recommended For You ---
+        # Search for actual songs across a range of moods/genres so the
+        # shelf contains directly-playable song cards (type="song") instead
+        # of playlist cards that need a second navigation step.
+        # Songs filter param: EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D
+        rec_queries = [
+            "top hindi hits",
+            "best english pop songs",
+            "chill lofi songs",
+            "bollywood romantic songs",
+            "top workout songs",
+        ]
+        rec_tasks = [
+            innertube.search(q, params="EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D")
+            for q in rec_queries
+        ]
 
-    _sem = asyncio.Semaphore(3)
-    async def _limited(coro):
-        async with _sem:
-            return await coro
+        # return_exceptions=True: if ANY single source fails, skip it
+        # instead of wiping the whole home page.
+        browse_responses = await asyncio.gather(*browse_tasks, return_exceptions=True)
+        mix_responses = await asyncio.gather(*rec_tasks, return_exceptions=True)
 
-    browse_ids = [
-        "FEmusic_home", "FEmusic_explore",
-        "FEmusic_new_releases", "FEmusic_charts"
-    ]
-    rec_queries = [
-        "top hindi hits",
-        "best english pop songs",
-        "chill lofi songs",
-        "bollywood romantic songs",
-        "top workout songs",
-    ]
+        all_sections = []
+        sections_by_key = {}  # lower(title) -> section dict, for merging duplicates
+        seen_item_keys = set()
+        recommended_items = []
 
-    tasks = (
-        [asyncio.create_task(_limited(innertube.browse(bid))) for bid in browse_ids]
-        + [asyncio.create_task(
-            _limited(innertube.search(q, params="EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"))
-           ) for q in rec_queries]
-    )
-
-    for completed_task in asyncio.as_completed(tasks):
-        try:
-            response = await completed_task
-            if not isinstance(response, dict):
+        for bid, response in zip(browse_ids, browse_responses):
+            if isinstance(response, Exception):
+                print(f"Home source '{bid}' failed, skipping: {response}")
                 continue
-            contents = response.get("contents", {})
-            if "tabbedSearchResultsRenderer" in contents:
-                results = parse_search_results(response)
-                songs = [r for r in results if r.get("type") == "song" and r.get("videoId")]
-                for song in songs[:5]:
-                    key = song.get("videoId")
-                    if key and key not in seen_item_keys:
-                        seen_item_keys.add(key)
-                        recommended_items.append(song)
-            else:
-                for s in parse_home_feed(response):
-                    unique_items = []
+            for s in parse_home_feed(response):
+                title = (s.get("title") or "").strip()
+                key = title.lower() if title else None
+                if key and key in sections_by_key:
+                    # MERGE into the existing section instead of dropping it.
+                    # Previously, any shelf whose title we'd already seen from
+                    # an earlier source (e.g. "New releases" appearing in both
+                    # FEmusic_home and FEmusic_new_releases) was discarded
+                    # entirely - silently losing all of its playlists/songs.
+                    existing = sections_by_key[key]
                     for item in s.get("items", []):
-                        item_key = (
-                            item.get("videoId") or
-                            item.get("browseId") or
-                            item.get("title")
-                        )
+                        item_key = item.get("videoId") or item.get("browseId") or item.get("title")
                         if item_key and item_key not in seen_item_keys:
                             seen_item_keys.add(item_key)
-                            unique_items.append(item)
-                    if unique_items:
-                        section = {"title": (s.get("title") or "").strip(), "items": unique_items}
-                        accumulated_sections.append(section)
-        except Exception as e:
-            print(f"Parallel task failed: {e}")
-            continue
+                            existing["items"].append(item)
+                else:
+                    for item in s.get("items", []):
+                        item_key = item.get("videoId") or item.get("browseId") or item.get("title")
+                        if item_key:
+                            seen_item_keys.add(item_key)
+                    all_sections.append(s)
+                    if key:
+                        sections_by_key[key] = s
 
-    if recommended_items:
-        rec_section = {"title": "Recommended For You", "items": recommended_items}
-        accumulated_sections.insert(0, rec_section)
+        for q, response in zip(rec_queries, mix_responses):
+            if isinstance(response, Exception):
+                print(f"Rec search '{q}' failed, skipping: {response}")
+                continue
+            results = parse_search_results(response)
+            # Keep only actual songs (type=="song") — skip any playlist/album
+            # cards that sneak in as the top result.
+            songs = [r for r in results if r.get("type") == "song" and r.get("videoId")]
+            for song in songs[:5]:  # up to 5 songs per query
+                key = song.get("videoId")
+                if key and key not in seen_item_keys:
+                    seen_item_keys.add(key)
+                    recommended_items.append(song)
 
-    if accumulated_sections:
-        cache_set("home", accumulated_sections)
+        if recommended_items:
+            all_sections.insert(0, {"title": "Recommended For You", "items": recommended_items})
 
-    return {"sections": accumulated_sections}
+        result = {"sections": all_sections}
+        cache_set("home", result)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/explore")
 async def get_explore(refresh: bool = False):
@@ -246,13 +232,10 @@ async def get_playlist_more(browseId: str, continuation: str = Query(...)):
             artist_sub = ""
             if len(flex_cols) > 1:
                 artist_sub = "".join(r.get("text", "") for r in flex_cols[1].get("musicResponsiveListItemFlexColumnRenderer", {}).get("text", {}).get("runs", []))
-            # Use ParserUtils.get_thumbnail() so continuation thumbnails go through
-            # the same CDN-resizing logic (_resolve_url) as first-page tracks.
-            # Previously used an inline sort that bypassed the =w512-h512-l90-rj
-            # suffix injection and the "//" → "https:" prefix fix.
-            thumb_url = ParserUtils.get_thumbnail(renderer.get("thumbnail", {}))
-            if not thumb_url and video_id:
-                thumb_url = f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"
+            thumb_url = ""
+            thumb_data = renderer.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+            if thumb_data:
+                thumb_url = sorted(thumb_data, key=lambda x: x.get("width", 0), reverse=True)[0].get("url", "")
             if title_run.get("text"):
                 tracks.append({"title": title_run["text"], "subtitle": artist_sub, "videoId": video_id, "thumbnail": thumb_url, "type": "song"})
 
@@ -276,65 +259,34 @@ async def get_playlist(browseId: str):
 
 @app.get("/api/stream/{videoId}")
 async def get_stream(videoId: str, request: Request):
+    def extract_url(video_id):
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'nocheckcertificate': True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
+            url = info['url']
+            mime = info.get('audio_ext', 'm4a')
+            # Normalize MIME type
+            if mime == 'm4a' or mime == 'none': mime_type = 'audio/mp4'
+            elif mime == 'webm': mime_type = 'audio/webm'
+            else: mime_type = f'audio/{mime}'
+            return url, mime_type
+
     try:
         print(f"Extracting stream for: {videoId}")
-
-        # Use InnerTube player first for speed and direct URLs (Pass 15)
-        response = await innertube.player(videoId)
-
-        streaming_data = response.get("streamingData", {})
-        formats = (streaming_data.get("adaptiveFormats", []) +
-                  streaming_data.get("formats", []))
-
-        # Filter for audio formats with a direct URL
-        audio_formats = [f for f in formats if "url" in f and "audio" in f.get("mimeType", "")]
-
-        selected_format = None
-        if audio_formats:
-            # Prefer Opus (251) then AAC (140)
-            selected_format = next((f for f in audio_formats if f.get("itag") == 251), None)
-            if not selected_format:
-                selected_format = next((f for f in audio_formats if f.get("itag") == 140), None)
-            if not selected_format:
-                selected_format = audio_formats[0]
-
-        if selected_format and "url" in selected_format:
-            stream_url = selected_format["url"]
-            mime_type = selected_format["mimeType"]
-            print(f"Direct stream found via InnerTube for {videoId}")
-        else:
-            # Fallback to yt-dlp if direct URL not found (handles signatureCipher)
-            print(f"No direct URL via InnerTube for {videoId}, trying yt-dlp with Node.js...")
-
-            def _extract(vid_id: str):
-                # Extremely robust extraction with Node.js and client fallback
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "quiet": True,
-                    "no_warnings": True,
-                    "noplaylist": True,
-                    "javascript_runtimes": ["node:C:\\Program Files\\nodejs\\node.exe"],
-                    "extractor_args": {
-                        "youtube": {
-                            "player_client": ["android", "web", "ios", "mweb"],
-                            "skip": ["hls", "dash"]
-                        }
-                    }
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # Retry with different clients if first attempt fails
-                    try:
-                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=False)
-                    except Exception:
-                        # Final attempt: Very high success client
-                        ydl.params['extractor_args']['youtube']['player_client'] = ['tv']
-                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=False)
-
-                    return info["url"], info.get("ext", "webm")
-
-            loop = asyncio.get_event_loop()
-            stream_url, ext = await loop.run_in_executor(_executor, _extract, videoId)
-            mime_type = "audio/webm" if ext == "webm" else "audio/mp4"
+        loop = asyncio.get_running_loop()
+        try:
+            stream_url, mime_type = await asyncio.wait_for(
+                loop.run_in_executor(None, extract_url, videoId),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="yt-dlp timed out after 30 seconds")
 
         range_header = request.headers.get("range", "bytes=0-")
         headers = {
@@ -343,8 +295,18 @@ async def get_stream(videoId: str, request: Request):
             "Referer": "https://music.youtube.com/",
         }
 
+        # Stream audio from YouTube through the proxy.
+        # We need the httpx response context to stay open while the browser
+        # reads chunks. The pattern below captures the response object and
+        # uses an async generator that holds a reference to it, so the
+        # connection stays alive for the full stream duration without
+        # buffering the whole file into RAM (Bug #1 fix).
+        #
+        # We enter the context manually here and exit it inside the generator
+        # finally block, which is the only safe pattern when the generator
+        # outlives the enclosing scope.
         ctx = innertube.stream_client.stream(
-            "GET", stream_url, headers=headers
+            "GET", stream_url, headers=headers, follow_redirects=True
         )
         upstream_res = await ctx.__aenter__()
 
@@ -366,10 +328,13 @@ async def get_stream(videoId: str, request: Request):
                 res_headers[h] = upstream_res.headers[h]
 
         async def stream_audio():
+            """Yield chunks and guarantee the httpx context is closed when
+            the generator is exhausted OR abandoned (client disconnect)."""
             try:
                 async for chunk in upstream_res.aiter_bytes(chunk_size=1024 * 64):
                     yield chunk
             finally:
+                # Always close the upstream connection, even on client disconnect.
                 await ctx.__aexit__(None, None, None)
 
         return StreamingResponse(
@@ -383,66 +348,6 @@ async def get_stream(videoId: str, request: Request):
     except Exception as e:
         print(f"Stream error: {e}")
         raise HTTPException(status_code=503, detail=f"Streaming failed: {str(e)}")
-
-@app.get("/api/prefetch/{videoId}")
-async def prefetch_stream(videoId: str):
-    """Pre-extract and cache the stream URL for a video in the background.
-    Called by the frontend after a song starts playing to warm up the next track."""
-    if stream_cache_get(videoId):
-        return {"status": "cached"}
-    try:
-        def _extract(vid_id: str):
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "quiet": True,
-                "no_warnings": True,
-                "noplaylist": True,
-                "javascript_runtimes": ["node:C:\\Program Files\\nodejs\\node.exe"],
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android", "web", "ios", "mweb"],
-                        "skip": ["hls", "dash"]
-                    }
-                }
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                try:
-                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=False)
-                except Exception:
-                    ydl.params['extractor_args']['youtube']['player_client'] = ['tv']
-                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=False)
-                return info["url"], info.get("ext", "webm")
-            ydl_opts = {
-                "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
-                "quiet": True,
-                "no_warnings": True,
-                "noplaylist": True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=False)
-                formats = info.get("formats", [])
-                audio = [f for f in formats if f.get("acodec") != "none" and f.get("vcodec") == "none" and f.get("url")]
-                if not audio:
-                    audio = [f for f in formats if f.get("acodec") != "none" and f.get("url")]
-                if not audio:
-                    return None, None
-                best = sorted(audio, key=lambda f: (
-                    0 if "opus" in (f.get("acodec") or "") else 1 if f.get("ext") == "m4a" else 2,
-                    -(f.get("abr") or f.get("tbr") or 0)
-                ))[0]
-                return best["url"], best.get("ext", "webm")
-
-        loop = asyncio.get_event_loop()
-        url, ext = await loop.run_in_executor(_executor, _extract, videoId)
-        if url:
-            stream_cache_set(videoId, url, ext)
-            print(f"Prefetched stream for {videoId}")
-            return {"status": "ok"}
-        return {"status": "failed"}
-    except Exception as e:
-        print(f"Prefetch failed for {videoId}: {e}")
-        return {"status": "error"}
-
 
 @app.get("/api/song/{videoId}")
 async def get_song(videoId: str):

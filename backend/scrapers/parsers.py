@@ -9,77 +9,27 @@ class ParserUtils:
         return "".join([run.get("text", "") for run in runs if isinstance(run, dict)])
 
     @staticmethod
-    def get_thumbnail(data: Any) -> str:
-        """Extract the largest thumbnail URL. Fast-path first, recursive scan as fallback."""
-        if not data:
-            return ""
-
-        # ── Fast path (covers ~95 % of responses) ──────────────────────────────
-        if isinstance(data, dict):
-            renderer = (
-                data.get("musicThumbnailRenderer") or
-                data.get("croppedSquareThumbnailRenderer") or
-                data
-            )
-            if isinstance(renderer, dict):
-                thumb_obj = renderer.get("thumbnail") or renderer
-                if isinstance(thumb_obj, dict):
-                    thumbnails = thumb_obj.get("thumbnails", [])
-                elif isinstance(thumb_obj, list):
-                    thumbnails = thumb_obj
-                else:
-                    thumbnails = []
-                if thumbnails:
-                    return ParserUtils._resolve_url(thumbnails)
-
-        elif isinstance(data, list):
-            if data and isinstance(data[0], dict) and "url" in data[0]:
-                return ParserUtils._resolve_url(data)
-
-        # ── Slow path: recursive scan only when fast path misses ───────────────
-        def _find(obj):
-            if isinstance(obj, list):
-                if obj and isinstance(obj[0], dict) and "url" in obj[0]:
-                    return obj
-                for item in obj:
-                    r = _find(item)
-                    if r: return r
-            elif isinstance(obj, dict):
-                if "thumbnails" in obj and isinstance(obj["thumbnails"], list):
-                    return obj["thumbnails"]
-                for v in obj.values():
-                    r = _find(v)
-                    if r: return r
-            return None
-
-        thumbnails = _find(data) or []
-        return ParserUtils._resolve_url(thumbnails) if thumbnails else ""
-
-    @staticmethod
-    def _resolve_url(thumbnails: list) -> str:
-        """Pick highest-res URL from a thumbnails list and apply CDN resizing."""
-        try:
-            url = sorted(thumbnails, key=lambda x: x.get("width", 0), reverse=True)[0].get("url", "")
-            if not url: return ""
-            if url.startswith("//"): url = "https:" + url
-            if "googleusercontent.com" in url or "ggpht.com" in url:
-                if "=" in url:
-                    url = url.split("=")[0] + "=w512-h512-l90-rj"
-                else:
-                    url += "=w512-h512-l90-rj"
-            elif "i.ytimg.com" in url:
-                import re
-                base = url.split("?")[0]
-                url = re.sub(r'/(hq|mq|sd|maxres)?default\.jpg', '/maxresdefault.jpg', base)
-                if url == base and "maxresdefault" not in base:
-                    url = base
-            return url
-        except (IndexError, TypeError, KeyError):
-            return ""
+    def get_thumbnail(thumbnails: List[Dict[str, Any]]) -> str:
+        if not thumbnails: return ""
+        sorted_thumbs = sorted(thumbnails, key=lambda x: x.get("width", 0), reverse=True)
+        return sorted_thumbs[0].get("url", "")
 
     @staticmethod
     def get_header_thumbnail(thumbnail_obj: Dict) -> str:
-        return ParserUtils.get_thumbnail(thumbnail_obj)
+        """Header thumbnails (album/playlist detail headers) can appear under
+        different renderer keys depending on the page - musicThumbnailRenderer
+        is the common case, croppedSquareThumbnailRenderer shows up too.
+        Checking only one of them is why some playlist/album covers render
+        blank while everything else on the page loads fine."""
+        if not thumbnail_obj:
+            return ""
+        for key in ("musicThumbnailRenderer", "croppedSquareThumbnailRenderer"):
+            renderer = thumbnail_obj.get(key)
+            if renderer:
+                url = ParserUtils.get_thumbnail(renderer.get("thumbnail", {}).get("thumbnails", []))
+                if url:
+                    return url
+        return ""
 
     @staticmethod
     def get_nav_endpoint(renderer: Dict) -> Dict:
@@ -188,13 +138,17 @@ def parse_home_feed(response: Dict[str, Any]) -> List[Dict[str, Any]]:
                     subtitle_text = ParserUtils.get_text(renderer["description"].get("runs", []))
 
                 # Thumbnail extraction
-                thumbnail = ParserUtils.get_thumbnail(renderer.get("thumbnailRenderer") or renderer.get("thumbnail"))
+                thumb_renderer = renderer.get("thumbnailRenderer") or renderer.get("thumbnail")
+                thumbnails = []
+                if thumb_renderer:
+                    if "musicThumbnailRenderer" in thumb_renderer:
+                        thumbnails = thumb_renderer["musicThumbnailRenderer"].get("thumbnail", {}).get("thumbnails", [])
+                    else:
+                        thumbnails = thumb_renderer.get("thumbnails", [])
+
+                thumbnail = ParserUtils.get_thumbnail(thumbnails)
 
                 if not title_text and not video_id: continue
-
-                # Fix 2: fall back through thumbnail quality chain
-                if not thumbnail and video_id:
-                    thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
 
                 items.append({
                     "title": title_text,
@@ -241,7 +195,9 @@ def parse_search_results(response: Dict[str, Any]) -> List[Dict[str, Any]]:
                         browse_id = playlist_id if playlist_id.startswith("VL") else f"VL{playlist_id}"
                         video_id = None  # treat as playlist, not a song
                 subtitle = ParserUtils.get_text(card.get("subtitle", {}).get("runs", []))
-                thumbnail = ParserUtils.get_thumbnail(card.get("thumbnail"))
+                thumbnail = ParserUtils.get_thumbnail(
+                    card.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+                )
                 if not video_id:
                     video_id = ParserUtils.get_video_id(card)
                 if title_run.get("text"):
@@ -267,7 +223,9 @@ def parse_search_results(response: Dict[str, Any]) -> List[Dict[str, Any]]:
                     t_vid = t_nav.get("watchEndpoint", {}).get("videoId") or ParserUtils.get_video_id(r)
                     t_bid = t_nav.get("browseEndpoint", {}).get("browseId")
                     t_sub = ParserUtils.get_text(col1_runs)
-                    t_thumb = ParserUtils.get_thumbnail(r.get("thumbnail"))
+                    t_thumb = ParserUtils.get_thumbnail(
+                        r.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+                    )
                     if t_text:
                         results.append({
                             "title": t_text,
@@ -305,13 +263,12 @@ def parse_search_results(response: Dict[str, Any]) -> List[Dict[str, Any]]:
                     video_id = ParserUtils.get_video_id(renderer)
 
                 # Thumbnail
-                thumbnail = ParserUtils.get_thumbnail(renderer.get("thumbnail"))
+                thumbnail = ParserUtils.get_thumbnail(
+                    renderer.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+                )
 
                 # Detect type from subtitle text tokens
                 item_type = ParserUtils.guess_type(video_id, browse_id, subtitle)
-
-                if not thumbnail and video_id:
-                    thumbnail = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
 
                 if title_text:
                     results.append({
@@ -607,14 +564,11 @@ def parse_playlist_page(response: Dict[str, Any]) -> Dict[str, Any]:
                 if len(flex_cols) > 1:
                     artist_sub = ParserUtils.get_text(flex_cols[1].get("musicResponsiveListItemFlexColumnRenderer", {}).get("text", {}).get("runs", []))
 
-                thumb = ParserUtils.get_thumbnail(renderer.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", []))
-                if not thumb and video_id:
-                    thumb = f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"
                 tracks.append({
                     "title": title_run.get("text", ""),
                     "subtitle": artist_sub,
                     "videoId": video_id,
-                    "thumbnail": thumb,
+                    "thumbnail": ParserUtils.get_thumbnail(renderer.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])),
                     "type": "song"
                 })
 
@@ -641,51 +595,13 @@ def parse_playlist_page(response: Dict[str, Any]) -> Dict[str, Any]:
 
 def parse_song_info(response: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        # Try to find the playlistPanelVideoRenderer in the watch response
-        # It's usually the first item in the queue.
-        contents = []
-        tabbed = response.get("singleColumnMusicWatchNextResultsRenderer", {}).get("tabbedRenderer", {}).get("watchNextTabbedResultsRenderer", {})
-        tabs = tabbed.get("tabs", [])
-        if tabs:
-            # Usually the first tab is the queue
-            contents = tabs[0].get("tabRenderer", {}).get("content", {}).get("musicQueueRenderer", {}).get("content", {}).get("playlistPanelRenderer", {}).get("contents", [])
-
-        # If not found there, try a recursive scan for any playlistPanelVideoRenderer
-        if not contents:
-            def find_panel_contents(obj):
-                if isinstance(obj, dict):
-                    if "playlistPanelRenderer" in obj:
-                        return obj["playlistPanelRenderer"].get("contents", [])
-                    for v in obj.values():
-                        res = find_panel_contents(v)
-                        if res: return res
-                elif isinstance(obj, list):
-                    for i in obj:
-                        res = find_panel_contents(i)
-                        if res: return res
-                return None
-            contents = find_panel_contents(response) or []
-
-        if contents:
-            panel = contents[0].get("playlistPanelVideoRenderer", {})
-            return {
-                "title": ParserUtils.get_text(panel.get("title", {}).get("runs", [])),
-                "subtitle": ParserUtils.get_text(panel.get("longBylineText", {}).get("runs", [])),
-                "thumbnail": ParserUtils.get_thumbnail(panel.get("thumbnail")),
-                "videoId": panel.get("videoId")
-            }
-
-        # Fallback to videoDetails if present
-        details = response.get("videoDetails", {})
-        if details:
-            return {
-                "title": details.get("title", ""),
-                "subtitle": details.get("author", ""),
-                "thumbnail": ParserUtils.get_thumbnail(details.get("thumbnail", {}).get("thumbnails", [])),
-                "videoId": details.get("videoId")
-            }
-
-        return {}
+        panel = response.get("singleColumnMusicWatchNextResultsRenderer", {}).get("tabbedRenderer", {}).get("watchNextTabbedResultsRenderer", {}).get("tabs", [{}])[0].get("tabRenderer", {}).get("content", {}).get("musicQueueRenderer", {}).get("content", {}).get("playlistPanelRenderer", {}).get("contents", [{}])[0].get("playlistPanelVideoRenderer", {})
+        return {
+            "title": ParserUtils.get_text(panel.get("title", {}).get("runs", [])),
+            "subtitle": ParserUtils.get_text(panel.get("longBylineText", {}).get("runs", [])),
+            "thumbnail": ParserUtils.get_thumbnail(panel.get("thumbnail", {}).get("thumbnails", [])),
+            "videoId": panel.get("videoId")
+        }
     except Exception as e:
         print(f"Error parsing song info: {e}")
         return {}
