@@ -306,8 +306,14 @@
     <audio id="audioEl" preload="none"></audio>
 
     <script>
-        // Set dynamic API Base to work on local network
-        const API_BASE = window.location.hostname ? `http://${window.location.hostname}:8000` : 'http://localhost:8000';
+        // Environment-aware API base URL
+        // Local dev (localhost / 127.0.0.1) → hits local backend on port 8000
+        // Live (Cloudflare) → hits Render backend
+        const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const API_BASE = IS_LOCAL
+            ? 'http://localhost:8000'
+            : 'https://musify-08mg.onrender.com';
+
         const audio = document.getElementById('audioEl');
         const playerBar = document.getElementById('player-bar');
         const searchInput = document.getElementById('search-input');
@@ -340,9 +346,6 @@
             renderContextPanel();
         }
         function panelQueueTracks() {
-            // queueIndex === -1 means nothing is playing yet. Without this guard,
-            // slice(-1+1) = slice(0) returns the entire queue as "after", making
-            // every track appear in "Up Next" with none highlighted as current.
             if (!queue.length || queueIndex < 0) return [];
             const after = queue.slice(queueIndex + 1);
             const before = queue.slice(0, queueIndex);
@@ -382,11 +385,6 @@
         function toggleQueuePanel() { queueExpanded = !queueExpanded; renderContextPanel(); }
         function playQueueItem(index) { if (index >= 0 && index < queue.length) { queueIndex = index; playCurrent(); } }
 
-        // --- AbortController registry ---
-        // Each key is a logical "slot" (e.g. 'home', 'explore', 'search', 'suggestions', 'detail').
-        // Calling abortAndNew(slot) cancels any in-flight request for that slot and returns a
-        // fresh controller whose signal you pass to fetch(). This prevents stale responses
-        // from an earlier navigation landing on top of a newer one.
         const _controllers = {};
         function abortAndNew(slot) {
             if (_controllers[slot]) {
@@ -395,14 +393,12 @@
             _controllers[slot] = new AbortController();
             return _controllers[slot];
         }
-        // Wraps fetch() to ignore AbortError silently (not a real error).
         async function afetch(url, slot, opts = {}) {
             const ctrl = abortAndNew(slot);
             const res = await fetch(url, { ...opts, signal: ctrl.signal });
             return res;
         }
 
-        // --- Liked Songs (persisted in localStorage) ---
         const LIKED_KEY = 'musify_liked_songs';
         function getLiked() {
             try { return JSON.parse(localStorage.getItem(LIKED_KEY) || '[]'); }
@@ -410,37 +406,25 @@
         }
         function saveLiked(arr) { localStorage.setItem(LIKED_KEY, JSON.stringify(arr)); }
         function isLiked(videoId) { return getLiked().some(t => t.videoId === videoId); }
-        // Bug #6 fix: toggleLike now always accepts a full track object (never an index).
-        // Unlike buttons in the liked-songs list pass the videoId directly so
-        // re-renders after a previous unlike don't shift indices and unlike the wrong track.
         function toggleLike(track, btn) {
             let liked = getLiked();
             const wasLiked = liked.some(t => t.videoId === track.videoId);
             if (wasLiked) {
                 liked = liked.filter(t => t.videoId !== track.videoId);
-                // btn is only non-null for emoji unlike buttons in the Liked Songs list rows.
-                // The player bar like button is SVG-based — updateLikeBtn() handles it below.
                 if (btn) { btn.textContent = '\u2661'; btn.classList.remove('liked'); }
             } else {
                 liked.unshift(track);
                 if (btn) { btn.textContent = '\u2665'; btn.classList.add('liked'); }
             }
             saveLiked(liked);
-            // Always sync the player bar SVG heart via updateLikeBtn().
-            // Previously toggleLike() tried to update the player button itself via
-            // btn.textContent, which wiped the SVG child nodes and broke the icon.
-            // updateLikeBtn() is the single source of truth for the SVG swap.
             updateLikeBtn();
             refreshSidebarLibrary();
             renderContextPanel();
-            // Refresh liked view if it's currently open
             const libView = document.getElementById('library-view');
             if (libView && libView.style.display !== 'none' && libView.dataset.section === 'Liked Songs') {
                 loadLibrary('Liked Songs');
             }
         }
-        // Bug #6 fix: look up track by videoId at click-time so index shifts after
-        // a previous unlike don't cause the wrong track to be removed.
         function toggleLikeById(videoId, btn) {
             const track = getLiked().find(t => t.videoId === videoId);
             if (track) toggleLike(track, btn);
@@ -470,8 +454,6 @@
             }
         }
 
-        // Bug #4 fix: escape helper for all user-supplied strings going into innerHTML.
-        // Prevents HTML injection from crafted/malformed API data (titles, subtitles, etc.).
         function esc(s) {
             if (!s) return '';
             return String(s)
@@ -481,10 +463,6 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         }
-        // Use srcUrl() for img src attributes — NOT esc().
-        // esc() turns & into &amp; which corrupts YouTube CDN URLs
-        // that contain query-string parameters (e.g. ?sqp=...&rs=...).
-        // srcUrl() only strips characters that break out of an HTML attribute.
         function srcUrl(s) {
             if (!s) return '';
             return String(s).replace(/"/g, '%22').replace(/</g, '%3C').replace(/>/g, '%3E');
@@ -492,18 +470,16 @@
 
         window.onload = () => {
             initRouter();
-            setVolume(100); // init slider fill colour
+            setVolume(100);
             refreshSidebarLibrary();
             renderContextPanel();
         };
 
-        // --- Routing System ---
         function initRouter() {
             window.onpopstate = (e) => {
                 const state = e.state || { view: 'home' };
                 navigate(state.view, state.id, false);
             };
-            // Initial load
             const params = new URLSearchParams(window.location.search);
             const view = params.get('view') || 'home';
             const id = params.get('id');
@@ -540,7 +516,6 @@
                 if(el) el.style.display = (v === id) ? 'block' : 'none';
             });
 
-            // Update nav active states
             document.querySelectorAll('.nav-link, .tab-link').forEach(l => l.classList.remove('active'));
             const map = {'home-view': ['nav-home', 'tab-home'], 'search-view': ['nav-search', 'tab-search'], 'explore-view': ['nav-explore', 'tab-explore']};
             if(map[id]) map[id].forEach(cid => document.getElementById(cid)?.classList.add('active'));
@@ -566,7 +541,6 @@
 
                 homeSectionData = data.sections || [];
 
-                // Prepend session-based "Continue Listening"
                 if (sessionRecentlyPlayed.length > 0) {
                     const continueSection = {
                         title: "Continue Listening",
@@ -612,8 +586,6 @@
             } catch(e) { if (e.name !== 'AbortError') showToast("Failed to load explore: " + e.message, true); }
         }
 
-        // Bug #4 fix: renderShelves now takes an optional viewKey ('home'|'explore'|'detail')
-        // and embeds it in the onclick so handleCardClick reads from the correct scoped array.
         function renderShelves(sections, viewKey = 'home') {
             if(!sections || !Array.isArray(sections)) return '';
             try {
@@ -708,14 +680,8 @@
         }
 
         function playFromLiked(idx) {
-            // Always read fresh from localStorage so the queue reflects the current
-            // liked list even if the user liked/unliked tracks since the view rendered.
-            // likedTracks (the module-level var) is only set when loadLibrary() runs,
-            // so it can be stale or empty if the view was never opened this session.
             const fresh = getLiked();
             if (!fresh.length) return;
-            // The Liked Songs view is rendered from getLiked() at render time, so the
-            // displayed row at position idx corresponds to fresh[idx] — no remapping needed.
             queue = fresh;
             queueIndex = Math.min(idx, fresh.length - 1);
             playbackFailures.clear();
@@ -730,7 +696,6 @@
             }
             showView('search-view');
             searchInput.focus();
-            // Force focus if blocked
             setTimeout(() => searchInput.focus(), 50);
         }
 
@@ -738,13 +703,9 @@
             currentFilter = filter;
             document.querySelectorAll('.filter-row .chip').forEach(c => c.classList.remove('active'));
             el.classList.add('active');
-            // Bug #6 fix: only re-run search if there's an active query.
-            // Clicking a chip with an empty input previously called runSearch()
-            // which silently returned, giving no feedback to the user.
             if (searchInput.value.trim()) runSearch();
         }
 
-        // Add explicit focus and prevent propagation to avoid focus stealing
         searchInput.onmousedown = e => e.stopPropagation();
         searchInput.oninput = e => {
             console.log("Search input trigger:", e.target.value);
@@ -757,7 +718,6 @@
                     const data = await res.json();
                     const div = document.getElementById('suggestions');
                     if(!data.suggestions || !data.suggestions.length) return div.style.display = 'none';
-                    // Bug #9 fix: build via DOM to prevent XSS from suggestion text with quotes/markup.
                     div.innerHTML = '';
                     data.suggestions.forEach(s => {
                         const item = document.createElement('div');
@@ -873,9 +833,6 @@
             const btn = document.getElementById('load-more-btn');
             if (btn) { btn.textContent = 'Loading…'; btn.disabled = true; }
             try {
-                // Use the existing AbortController registry (afetch) with a dedicated
-                // 'loadmore' slot: a rapid repeat click aborts the previous in-flight
-                // request instead of letting both resolve and append duplicate tracks.
                 const res = await afetch(`${API_BASE}/api/playlist/${browseId}/more?continuation=${encodeURIComponent(continuation)}`, 'loadmore');
                 if (!res.ok) throw new Error(`Server error ${res.status}`);
                 const data = await res.json();
@@ -885,7 +842,6 @@
                 currentViewTracks = currentViewTracks.concat(newTracks);
                 currentContinuation = data.continuation || null;
 
-                // Append new rows to the track list
                 const list = document.getElementById('track-list');
                 if (list) {
                     list.insertAdjacentHTML('beforeend', newTracks.map((t, i) => `
@@ -899,10 +855,6 @@
                         </div>`).join(''));
                 }
 
-                // Update or remove the Load more button.
-                // Re-query by id here: the stale `btn` reference captured before the
-                // await may no longer be in the DOM if a rapid double-click already
-                // removed it, causing btn.parentElement to throw a TypeError.
                 const freshBtn = document.getElementById('load-more-btn');
                 if (freshBtn) {
                     if (data.continuation) {
@@ -913,7 +865,7 @@
                     }
                 }
             } catch(e) {
-                if (e.name === 'AbortError') return; // superseded by a newer Load More click — not a real error
+                if (e.name === 'AbortError') return;
                 if (version !== navigationVersion || browseId !== currentDetailBrowseId || continuation !== currentContinuation) return;
                 showToast('Failed to load more: ' + e.message, true);
                 const errBtn = document.getElementById('load-more-btn');
@@ -923,8 +875,6 @@
 
         function renderDetailView(data, typeLabel) {
             const container = document.getElementById('detail-view');
-            // Bug #5 fix: use scoped module-level vars instead of window.* globals
-            // so album and playlist detail pages don't overwrite each other's queues.
             currentViewTracks = data.tracks || [];
             currentDetailBrowseId = data.browseId || null;
             currentContinuation = data.continuation || null;
@@ -957,20 +907,14 @@
                 ${data.continuation ? `<div style="text-align:center;margin:24px 0"><button class="play-all-btn" id="load-more-btn" onclick="loadMoreTracks()">Load more</button></div>` : ''}`;
         }
 
-        // Bug #4 fix: resolve the correct scoped data array by viewKey instead of
-        // reading from the shared `sectionData` global which can be stale after
-        // rapid navigation.
         function getSectionData(viewKey) {
             if (viewKey === 'explore') return exploreSectionData;
             if (viewKey === 'detail') return detailSectionData;
-            return homeSectionData; // default: 'home'
+            return homeSectionData;
         }
 
         function handleCardClick(viewKey, sIdx, iIdx) {
             const data = getSectionData(viewKey);
-            // Guard against stale onclick indices from a previous render:
-            // if the data array was replaced mid-navigation, sIdx/iIdx may be
-            // out of bounds and data[sIdx] would be undefined, throwing on .items.
             if (!data[sIdx] || !data[sIdx].items || !data[sIdx].items[iIdx]) return;
             const item = data[sIdx].items[iIdx];
             console.log("Card clicked:", item);
@@ -984,7 +928,6 @@
             } else if (item.type === 'artist') {
                 navigate('artist', item.browseId);
             } else if (item.browseId) {
-                // Fallback detection
                 if (item.browseId.startsWith('MPRE')) navigate('album', item.browseId);
                 else if (item.browseId.startsWith('VL')) navigate('playlist', item.browseId);
                 else navigate('artist', item.browseId);
@@ -994,28 +937,21 @@
         function playFromShelf(viewKey, sIdx, iIdx) {
             const data = getSectionData(viewKey);
             const list = data[sIdx].items;
-            // Bug #3 fix: if the clicked card has no videoId (artist/album/playlist card),
-            // fall back to the first song item in the shelf rather than setting queueIndex=-1
-            // and silently failing. If there are no songs at all in the shelf, do nothing.
             const clickedItem = list[iIdx];
             const startItem = clickedItem.videoId ? clickedItem : list.find(i => i.videoId);
             if (!startItem) return;
             queue = list.filter(i => i.videoId);
             queueIndex = queue.findIndex(i => i.videoId === startItem.videoId);
-            if (queueIndex === -1) return; // no playable items
+            if (queueIndex === -1) return;
             playbackFailures.clear();
             playCurrent();
         }
 
         function playFromCurrentView(idx) {
-            // Filter out any tracks that lack a videoId (malformed API data)
-            // so playCurrent() never tries to stream `/api/stream/undefined`.
-            // Remap idx to account for any items dropped by the filter.
             const allTracks = currentViewTracks || [];
             const clickedTrack = allTracks[idx];
             queue = allTracks.filter(t => t.videoId);
             if (!clickedTrack || !clickedTrack.videoId) {
-                // Clicked item itself has no videoId — play the first playable track.
                 queueIndex = 0;
             } else {
                 queueIndex = queue.findIndex(t => t.videoId === clickedTrack.videoId);
@@ -1037,7 +973,6 @@
             if(queueIndex < 0 || queueIndex >= queue.length) return;
             const track = queue[queueIndex];
 
-            // Add to session recently played
             if (!sessionRecentlyPlayed.find(t => t.videoId === track.videoId)) {
                 sessionRecentlyPlayed.unshift(track);
                 if (sessionRecentlyPlayed.length > 12) sessionRecentlyPlayed.pop();
@@ -1047,7 +982,7 @@
             document.getElementById('player-thumb').src = track.thumbnail;
             document.getElementById('player-title').innerText = track.title;
             document.getElementById('player-artist').innerText = track.subtitle;
-            setPlayIcon('play'); // loading state — show play until stream starts
+            setPlayIcon('play');
             updateLikeBtn();
             if (panelContext.kind !== 'collection' && panelContext.kind !== 'liked') {
                 setPanelContext({ kind: 'track', title: track.title, subtitle: track.subtitle, thumbnail: track.thumbnail || '', tracks: [] });
@@ -1058,13 +993,11 @@
                 console.log(`Loading stream for: ${track.videoId}`);
                 audio.src = `${API_BASE}/api/stream/${track.videoId}`;
                 audio.load();
-                // Chrome autoplay policy: only play after user gesture
                 const playPromise = audio.play();
                 if (playPromise !== undefined) {
                     playPromise.catch(e => {
                         console.warn("Autoplay blocked, waiting for user to press play:", e);
                         setPlayIcon('play');
-                        // Don't show error toast - just wait for user to click play
                     });
                 }
             } catch(e) {
@@ -1088,9 +1021,6 @@
             }
         }
         function prev() {
-            // If the current stream has an active error, skip the currentTime check:
-            // resetting currentTime on a broken src re-fires onerror, showing a
-            // spurious error toast instead of cleanly moving to the previous track.
             if (!queue.length || queueIndex < 0) return;
             const hasError = !!audio.error;
             if (!hasError && audio.currentTime > 3) {
@@ -1109,9 +1039,6 @@
         function toggleShuffle() { shuffle = !shuffle; document.getElementById('shuffle-btn').classList.toggle('active', shuffle); }
         function toggleRepeat() { repeat = !repeat; audio.loop = repeat; document.getElementById('repeat-btn').classList.toggle('active', repeat); }
         function seek(e) {
-            // audio.duration is NaN before metadata loads and Infinity on live streams;
-            // setting currentTime to either value throws a NotSupportedError in some
-            // browsers and always produces a console error.
             if (!audio.duration || !isFinite(audio.duration)) return;
             audio.currentTime = (e.clientX - e.currentTarget.getBoundingClientRect().left)
                 / e.currentTarget.offsetWidth * audio.duration;
@@ -1121,10 +1048,8 @@
             audio.volume = v / 100;
             const slider = document.getElementById('volume-slider');
             if (slider) {
-                // Fill the track up to thumb position with accent colour
                 slider.style.background = `linear-gradient(to right, var(--accent) ${v}%, var(--surface2) ${v}%)`;
             }
-            // Update speaker icon: muted = no waves, low = one wave, high = two waves
             const w1 = document.getElementById('vol-wave-1');
             const w2 = document.getElementById('vol-wave-2');
             if (w1 && w2) {
@@ -1150,14 +1075,12 @@
 
         const DEBUG = true;
         function setPlayIcon(state) {
-            // state: 'play' | 'pause' | 'loading'
             const pi = document.getElementById('play-icon');
             const pa = document.getElementById('pause-icon');
             if (!pi || !pa) return;
             if (state === 'pause') {
                 pi.style.display = 'none'; pa.style.display = '';
             } else {
-                // 'play' and 'loading' both show the play triangle
                 pi.style.display = ''; pa.style.display = 'none';
             }
         }
@@ -1188,18 +1111,12 @@
             const err = audio.error;
             console.error("Audio error event:", err);
 
-            // Bug #7 fix: the previous implementation did a HEAD fetch to audio.src
-            // which re-triggered the full yt-dlp extraction (5-15 s). Instead,
-            // map the MediaError code directly to a human-readable message.
-            // The backend already logs and raises HTTPException with the real HTTP status;
-            // the browser surfaces that as MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) or
-            // MEDIA_ERR_NETWORK (code 2) depending on the status code.
             let msg = "Playback failed";
             if (err) {
                 if (err.code === MediaError.MEDIA_ERR_NETWORK)      msg = "Network error — check your connection.";
                 else if (err.code === MediaError.MEDIA_ERR_DECODE)  msg = "Audio decode error — format may be unsupported.";
                 else if (err.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) msg = "Stream unavailable — YouTube may have blocked this track.";
-                else if (err.code === MediaError.MEDIA_ERR_ABORTED) return; // user-initiated abort, not an error
+                else if (err.code === MediaError.MEDIA_ERR_ABORTED) return;
             }
             const failedTrack = queue[queueIndex];
             if (!failedTrack || !failedTrack.videoId) {
