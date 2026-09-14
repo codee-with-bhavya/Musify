@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Musify</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+    <div class="app">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-logo" onclick="navigate('home')">
+                <div class="sidebar-logo-icon"><i class="ti ti-music"></i></div>
+                <div class="sidebar-logo-text">Musify</div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-link active" id="nav-home" onclick="navigate('home')">
+                    <i class="ti ti-home"></i><span>Home</span>
+                </div>
+                <div class="nav-link" id="nav-search" onclick="navigate('search')">
+                    <i class="ti ti-search"></i><span>Search</span>
+                </div>
+                <div class="nav-link" id="nav-explore" onclick="navigate('explore')">
+                    <i class="ti ti-world"></i><span>Explore</span>
+                </div>
+                <div class="nav-link" id="nav-downloads" onclick="navigate('library','Downloads')">
+                    <i class="ti ti-download"></i><span>Downloads</span>
+                </div>
+            </nav>
+
+            <div class="sidebar-divider"></div>
+            <div class="sidebar-label-row">
+                <div class="sidebar-label">Your Library</div>
+                <button class="sidebar-add-btn" title="Create playlist" onclick="createPlaylist()"><i class="ti ti-plus"></i></button>
+            </div>
+
+            <div class="sidebar-pills">
+                <button class="sidebar-pill active" onclick="setLibraryPill('Playlists');navigate('library','Playlists')">Playlists</button>
+                <button class="sidebar-pill" onclick="setLibraryPill('Artists');navigate('library','Artists')">Artists</button>
+                <button class="sidebar-pill" onclick="setLibraryPill('Albums');navigate('library','Albums')">Albums</button>
+            </div>
+
+            <div class="sidebar-library">
+                <div class="sidebar-row" onclick="navigate('library','Liked Songs')">
+                    <div class="sidebar-row-icon" id="sidebar-icon-liked"><i class="ti ti-heart"></i></div>
+                    <div class="sidebar-row-text">
+                        <div class="sidebar-row-name">Liked Songs</div>
+                        <div class="sidebar-row-meta" id="sidebar-liked-count">Playlist · 0 songs</div>
+                    </div>
+                    <div class="sidebar-row-underline" id="sidebar-underline-liked"></div>
+                </div>
+                <div id="sidebar-playlists"></div>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main">
+            <div class="topbar">
+                <div class="search-box" id="search-box">
+                    <i class="ti ti-search"></i>
+                    <input type="text" id="search-input" placeholder="Search songs, artists, albums..." autocomplete="off">
+                    <div id="suggestions" class="suggestions"></div>
+                </div>
+            </div>
+
+            <div class="filter-tabs" id="filter-tabs">
+                <button class="filter-tab active" onclick="setFilter('', this)">All</button>
+                <button class="filter-tab" onclick="setFilter('songs', this)">Music</button>
+                <button class="filter-tab" onclick="setFilter('podcasts', this)">Podcasts</button>
+            </div>
+
+            <div class="content" id="content">
+                <div id="home-view" class="view active"></div>
+                <div id="explore-view" class="view"></div>
+                <div id="search-view" class="view">
+                    <div id="search-results"></div>
+                </div>
+                <div id="library-view" class="view"></div>
+                <div id="detail-view" class="view"></div>
+            </div>
+        </main>
+
+        <!-- Now Playing -->
+        <aside class="now-playing" id="now-playing">
+            <div class="np-header">
+                <span class="np-label">Now playing</span>
+            </div>
+
+            <div class="np-art" id="np-art">
+                <i class="ti ti-music np-art-icon" id="np-art-icon"></i>
+                <img id="np-art-img" src="" style="display:none" alt="">
+            </div>
+
+            <div class="np-track">
+                <div class="np-track-name" id="np-track-name">Nothing playing</div>
+                <div class="np-hint" id="np-hint">Pick a song to start listening</div>
+            </div>
+
+            <div class="np-controls">
+                <button class="np-like" id="np-like-btn" onclick="likeCurrentTrack()" title="Like">
+                    <i class="ti ti-heart" id="np-like-icon"></i>
+                </button>
+                <button class="np-ctrl" onclick="prev()" title="Previous">
+                    <i class="ti ti-player-skip-back"></i>
+                </button>
+                <button class="np-play" id="np-play-btn" onclick="togglePlay()" title="Play/Pause">
+                    <i class="ti ti-player-play" id="np-play-icon"></i>
+                </button>
+                <button class="np-ctrl" onclick="next()" title="Next">
+                    <i class="ti ti-player-skip-forward"></i>
+                </button>
+                <button class="np-ctrl" id="shuffle-btn" onclick="toggleShuffle()" title="Shuffle">
+                    <i class="ti ti-arrows-shuffle"></i>
+                </button>
+                <button class="np-ctrl" id="repeat-btn" onclick="toggleRepeat()" title="Repeat">
+                    <i class="ti ti-player-repeat"></i>
+                </button>
+            </div>
+
+            <div class="np-progress">
+                <div class="np-bar" onclick="seek(event)">
+                    <div id="np-bar-fill" class="np-bar-fill"></div>
+                </div>
+                <div class="np-times">
+                    <span id="np-elapsed">0:00</span>
+                    <span id="np-duration">0:00</span>
+                </div>
+            </div>
+
+            <div class="np-volume">
+                <i class="ti ti-volume" id="np-vol-icon" onclick="toggleMute()"></i>
+                <input type="range" id="np-vol-slider" min="0" max="100" value="100" oninput="setVolume(this.value)">
+            </div>
+
+            <div class="np-queue" id="np-queue">
+                <div class="np-queue-header">
+                    <span class="np-queue-label">Next in queue</span>
+                    <button class="np-queue-link" onclick="toggleQueueExpand()">Open queue</button>
+                </div>
+                <div class="np-queue-list" id="np-queue-list">
+                    <div class="np-queue-empty">Your next songs will appear here.</div>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Mobile bottom tabs -->
+    <div class="bottom-tabs">
+        <div class="tab-link active" id="tab-home" onclick="navigate('home')"><i class="ti ti-home"></i><span>Home</span></div>
+        <div class="tab-link" id="tab-search" onclick="navigate('search')"><i class="ti ti-search"></i><span>Search</span></div>
+        <div class="tab-link" id="tab-explore" onclick="navigate('explore')"><i class="ti ti-world"></i><span>Explore</span></div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <div id="playlist-menu" class="popup-menu"></div>
+    <audio id="audioEl" preload="none"></audio>
+    <script src="../js/app.js"></script>
+</body>
+</html>
