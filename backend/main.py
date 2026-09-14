@@ -259,13 +259,15 @@ async def get_playlist(browseId: str):
 
 @app.get("/api/stream/{videoId}")
 async def get_stream(videoId: str, request: Request):
-    def extract_url(video_id):
+    def extract_url_ytdlp(video_id):
+        """Slow fallback: yt-dlp (needs a JS runtime on the host for ciphered tracks)."""
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
             'nocheckcertificate': True,
+            'noplaylist': True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f'https://www.youtube.com/watch?v={video_id}', download=False)
@@ -278,16 +280,29 @@ async def get_stream(videoId: str, request: Request):
             return url, mime_type
 
     try:
-        print(f"Extracting stream for: {videoId}")
-        loop = asyncio.get_running_loop()
-        try:
-            stream_url, mime_type = await asyncio.wait_for(
-                loop.run_in_executor(None, extract_url, videoId),
-                timeout=30
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="yt-dlp timed out after 30 seconds")
+        print(f"Resolving stream for: {videoId}")
 
+        # ── FAST PATH: scraper (ANDROID_MUSIC player) gives an instant,
+        #    pre-signed, direct URL — no yt-dlp, no Node, single round trip.
+        stream_url = await innertube.get_stream_url(videoId)
+        mime_type = "audio/mp4"  # Android returns m4a/opus; duration/media handled upstream
+        source = "scraper"
+
+        # ── SLOW PATH FALLBACK: scraper couldn't give a direct URL (ciphered /
+        #    blocked track) -> fall back to yt-dlp.
+        if stream_url is None:
+            print(f"Scraper had no direct URL for {videoId}, falling back to yt-dlp")
+            source = "yt-dlp"
+            loop = asyncio.get_running_loop()
+            try:
+                stream_url, mime_type = await asyncio.wait_for(
+                    loop.run_in_executor(None, extract_url_ytdlp, videoId),
+                    timeout=30
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail="yt-dlp timed out after 30 seconds")
+
+        print(f"Streaming via {source} for {videoId}")
         range_header = request.headers.get("range", "bytes=0-")
         headers = {
             "Range": range_header,

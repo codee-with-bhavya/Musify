@@ -42,6 +42,11 @@ class YouTubeClient:
     ORIGIN = "https://music.youtube.com"
     REFERER = "https://music.youtube.com/"
 
+    # Public (non-secret) YouTube web API key used by the ANDROID_MUSIC player
+    # client. Returning pre-signed stream URLs requires this key on the request,
+    # the same way widely-used open-source YTM players (ViMusic, etc.) do.
+    API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+
 class InnerTube:
     def __init__(self):
         self.client = httpx.AsyncClient(
@@ -50,6 +55,7 @@ class InnerTube:
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "X-Goog-Api-Format-Version": "1",
+                "X-Goog-Api-Key": YouTubeClient.API_KEY,
                 "X-Origin": YouTubeClient.ORIGIN,
                 "Referer": YouTubeClient.REFERER,
             },
@@ -107,6 +113,48 @@ class InnerTube:
         if client_config["clientName"] == "ANDROID_MUSIC":
             body["cpn"] = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
         return await self.post("player", body, client_config)
+
+    async def get_stream_url(self, video_id: str) -> Optional[str]:
+        """Fast scraper-based stream resolution (no yt-dlp, no Node/JS runtime).
+
+        Calls the ANDROID_MUSIC player endpoint and returns the URL of the
+        highest-bitrate audio-only format that YouTube returned as a PRE-SIGNED
+        direct URL. Because the Android client + API key yields unencrypted
+        'url' fields for the large majority of tracks, this avoids the multi-
+        second yt-dlp+JS extraction entirely — it's a single HTTP round trip.
+
+        Returns None when no direct (non-ciphered) audio URL is available, e.g.
+        the track is blocked, account-restricted, or came back with only
+        signatureCipher / n-parameter variants. The caller should then fall
+        back to yt-dlp.
+        """
+        try:
+            response = await self.player(video_id, YouTubeClient.ANDROID_MUSIC)
+
+            status = response.get("playabilityStatus", {}).get("status")
+            if status not in ("OK", "LIVE_STREAM_OFFLINE"):
+                return None
+
+            streaming_data = response.get("streamingData", {})
+            if not streaming_data:
+                return None
+
+            formats = streaming_data.get("adaptiveFormats", [])
+            # Pick the best audio-only format that has a direct, unencrypted URL.
+            best = None
+            for fmt in formats:
+                url = fmt.get("url")
+                if not url:
+                    continue  # ciphered -> needs deobfuscation, skip for fast path
+                if "audio" not in fmt.get("mimeType", ""):
+                    continue
+                if best is None or fmt.get("bitrate", 0) > best.get("bitrate", 0):
+                    best = fmt
+            if best:
+                return best["url"]
+            return None
+        except Exception:
+            return None
 
     async def browse(self, browse_id: str, params: Optional[str] = None, continuation: Optional[str] = None) -> Dict[str, Any]:
         body = {}
